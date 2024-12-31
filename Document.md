@@ -1,3 +1,4 @@
+
 ### 全局变量:
 
 ```
@@ -28,24 +29,65 @@ params.tabIndex
 
 ### 规则内置CryptoJS,可直接使用
 
+
+### cookie方法
+```
+// 获取 cookies
+let cookies = await cookie.getCookie(url);
+
+// 获取单条cookie
+let cookie = await cookie.getCookieByKey(url，key);
+
+// 删除cookie
+await cookie.removeCookie(url);
+```
+
 ### tools方法:
 ```
+// 显示一个输入验证码窗口
+await tools.getVerificationCode(imgUrl,title);
+
+// 弹窗提示
+tools.toast("hello!");
+
+// 使用内置浏览器打开链接，可用于获取验证码 手动验证网站防爬,
+// 返回值为Cookies
+await tools.startBrowser(url);
+
+// 将文本转换为简体
+await tools.t2s(text);
+
+// 将文本转换为繁体
+await tools.s2t(text);
+
 // css选择器
 await tools.cssSelector(html,css)
 
 // xpath选择器
 await tools.xpathSelector(html,xpath)
 
+// RSAPadding定义
+
+RSAPadding.NoPadding
+RSAPadding.PKCS1
+RSAPadding.OAEP
+
+
 // RSA加解密
-await tools.rsaEncrypt(string,publicKey);
-await tools.rsaDecrypt(string,privateKey);
+// algorithm 参数可空,默认为 RSAPadding.PKCS1
+
+await tools.rsaEncrypt(string, publicKey, algorithm);
+await tools.rsaDecrypt(string, privateKey, algorithm);
 
 // RSA加解密(私钥加密-公钥解密)
-await tools.rsaEncryptWithPrivate(string,privateKey);
-await tools.rsaDecryptWithPublic(string,publicKey);
+await tools.rsaEncryptWithPrivate(string, privateKey, algorithm);
+await tools.rsaDecryptWithPublic(string, publicKey, algorithm);
 
 // 启动一个本地http服务器,content可传递自定义内容,成功将返回一个可访问的本地url
 await tools.httpServer(content,suffix);
+
+// 暂停一段时间,单位为秒
+await sleep(sec)
 
 // 发送http请求
 await tools.httpRequest()
@@ -65,6 +107,41 @@ ripemd160Encode: (str) => CryptoJS.RIPEMD160(str).toString(),
 // 调用方法
 let res = tools.md5Encode('MD5');
 console.log(res);
+
+// utf8 编码
+utf8Encode(str);
+// utf8 解码
+utf8Decode(utftext);
+// 对Array数据进行 utf8 编码
+utf8EncodeWithArray(bytes);
+// 对Array数据进行 utf8 解码
+utf8DecodeWithArray(bytes);
+
+
+
+
+// 解压zip
+
+await zipDecode(bytes, (name, isFile, content)=>{}, passWord);
+
+// 参数1:zip数据,需要传递Array类型
+// 参数2:一个回调函数->共三个参数
+//                            name:文件名
+//                            isFile:true表示是否为文件
+//                            content:文件内容ArrayBuffer类型
+//                            返回值:如果提供文件名将返回文件内容
+// 参数3:解压密码
+
+// 示例：
+
+let decodeData = await tools.zipDecode(data, (name, isFile, content) => {
+    // 命中文件
+    if (name.endsWith(".html")) {
+        return name;
+    }
+    return null;
+}, passWord);
+
 
 // 存取本地缓存
 await tools.setCache(strKey, obj)
@@ -107,6 +184,8 @@ console.error([...])
     "forbidredirect":true,                                      // 禁止重定向
     "headers":{"Referer":"https://www.baidu.com/"},             // 请求头
     "h2":true,                                                  // 是否用http2
+    "encoding":"gbk",                                           // 请求编码
+    "responseDecode":"gbk",                                     // 响应解码.一般不写,默认通过响应头获取
     "body":"a=1",                                               // post数据
     "method":"POST",                                            // 请求模式,默认GET
     "cachetime":"3600",                                         // 请求缓存时间,单位为秒

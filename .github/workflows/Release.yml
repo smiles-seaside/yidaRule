@@ -6,10 +6,9 @@ on:
 env:
   LLVM_VERSION: '10.0'
   RUST_TOOLCHAIN: nightly-2023-10-31
-  NDK_VERSION: 25.2.9519653
-  FLUTTER_VERSION: '3.18.0-0.2.pre'
-  FLUTTER_CHANNEL: 'beta'
-  FRB_VERSION: 'v2.0.0-dev.9'
+  FLUTTER_VERSION: '3.20.0-16.0.pre'
+  FLUTTER_CHANNEL: 'master'
+  FRB_VERSION: 'v2.0.0-dev.25'
 
 jobs:
 
@@ -72,12 +71,12 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          # - target: linux
-          #   host: ubuntu-latest
-          # - target: windows
-          #   host: windows-latest
-          # - target: macos
-          #   host: macos-13
+          - target: linux
+            host: ubuntu-latest
+          - target: windows
+            host: windows-latest
+          - target: macos
+            host: macos-13
           - target: ios
             host: macos-13
           - target: android-arm32
@@ -110,12 +109,6 @@ jobs:
             ~/.cargo/git/db/
           key: ${{ runner.os }}-cargo-
           
-      # - name: Install Windows10-Sdk
-      #   if: matrix.config.target == 'windows'
-      #   uses: GuillaumeFalourd/setup-windows10-sdk-action@v1.12
-      #   with:
-      #     sdk-version: 22621
-          
       - name: Install rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -138,30 +131,27 @@ jobs:
           cd yida/ci
           cargo run --release --bin check-asset
 
+      - name: Setup java (Android)
+        if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64' || matrix.config.target == 'android-x86_64' )
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: 'temurin'
+
+      - name: Setup android tools (Android)
+        if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64' || matrix.config.target == 'android-x86_64' )
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 8512546
+          packages: 'platform-tools platforms;android-30 build-tools;30.0.3 ndk;23.1.7779620'
+
+
       - name: Setup xcode
         if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'ios' || matrix.config.target == 'macos')
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '14.3.1'
           
-      - name: Setup java (Android)
-        if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64' || matrix.config.target == 'android-x86_64' )
-        uses: actions/setup-java@v3
-        with:
-          java-version: 11
-          distribution: 'zulu'
-
-      # - name: Setup android tools (Android)
-      #   if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64' || matrix.config.target == 'android-x86_64' )
-      #   uses: maxim-lobanov/setup-android-tools@v1
-      #   with:
-      #     packages: |
-      #       platform-tools
-      #         platforms;android-33
-      #         build-tools;33.0.0
-      #         ndk;${{ env.NDK_VERSION }}
-            
-
       - name: Check bridge
         if: steps.check_asset.outputs.skip_build != 'true'
         uses: actions/checkout@v3
@@ -226,15 +216,19 @@ jobs:
           path: |
             yida/rust/target/
           key: ${{ runner.os }}-cargo-native_target-${{ matrix.config.target }}
-
+          
+      - name: Flutter Generate 
+        if: steps.check_asset.outputs.skip_build != 'true' && matrix.config.target != 'windows'
+        run: |
+          cd yida
+          flutter pub get
+          dart run ffigen --config config.yaml
+          
       - name: Install rust target and build (ios)
         if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'ios')
         run: |
           rustup target install aarch64-apple-ios
           cd yida
-          flutter pub get
-          flutter pub upgrade
-          flutter_rust_bridge_codegen generate 
           flutter build ios --target=lib/main2.dart --obfuscate --split-debug-info=./symbol --no-simulator --no-codesign --release
           cd build
           rm -rf Payload
@@ -244,70 +238,27 @@ jobs:
           zip -r -9 release.ipa Payload
           cd ..
 
-      - name: Install LLVM and Clang (Linux/Android)
-        if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32' || matrix.config.target == 'android-arm64' || matrix.config.target == 'android-x86_64' ) && !startsWith(matrix.config.flutter_version, '2')
-        run: |
-          cd yida
-          flutter pub get
-          flutter_rust_bridge_codegen generate 
 
       - name: Install rust target and build (Android-arm64)
         if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm64')
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
-          PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$ANDROID_NDK_ROOT/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin:$PATH
-          wget https://www.openssl.org/source/openssl-3.2.0.tar.gz
-          tar -xzvf openssl-3.2.0.tar.gz
-          cd openssl-3.2.0
-          ./Configure android-arm64
-          make
-          sudo make install
-          export OPENSSL_DIR=/usr/local
-          export OPENSSL_STATIC=1
-          cd ..
+          sudo apt-get install pkg-config libssl-dev
           rustup target install aarch64-linux-android
           cd yida
-          flutter pub get
-          flutter pub upgrade
           flutter build apk --target=lib/main2.dart --target-platform android-arm64 --obfuscate --split-debug-info=./symbol --split-per-abi
 
       - name: Install rust target and build (Android-arm32)
         if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-arm32')
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
-          PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$ANDROID_NDK_ROOT/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin:$PATH
-          wget https://www.openssl.org/source/openssl-3.2.0.tar.gz
-          tar -xzvf openssl-3.2.0.tar.gz
-          cd openssl-3.2.0
-          ./Configure android-arm
-          make
-          sudo make install
-          export OPENSSL_DIR=/usr/local
-          export OPENSSL_STATIC=1
-          cd ..
+          sudo apt-get install pkg-config libssl-dev
           rustup target install armv7-linux-androideabi
           cd yida
-          flutter pub get
-          flutter pub upgrade
           flutter build apk --target=lib/main2.dart --target-platform android-arm --obfuscate --split-debug-info=./symbol --split-per-abi
 
       - name: Install rust target and build (Android-x86_64)
         if: steps.check_asset.outputs.skip_build != 'true' && ( matrix.config.target == 'android-x86_64')
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}
-          export ANDROID_NDK_ROOT=$ANDROID_NDK_HOME
-          PATH=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$ANDROID_NDK_ROOT/toolchains/arm-linux-androideabi-4.9/prebuilt/linux-x86_64/bin:$PATH
-          wget https://www.openssl.org/source/openssl-3.2.0.tar.gz
-          tar -xzvf openssl-3.2.0.tar.gz
-          cd openssl-3.2.0
-          ./Configure android-x86_64
-          make
-          sudo make install
-          export OPENSSL_DIR=/usr/local
-          export OPENSSL_STATIC=1
-          cd ..
+          sudo apt-get install pkg-config libssl-dev
           rustup target install x86_64-linux-android
           cd yida
           flutter build apk --target=lib/main2.dart --target-platform android-x64 --obfuscate --split-debug-info=./symbol --split-per-abi
@@ -316,13 +267,12 @@ jobs:
         if: steps.check_asset.outputs.skip_build != 'true' && matrix.config.target == 'linux'
         run: |
           sudo apt-get update
-          sudo apt install -y ninja-build liblzma-dev libgtk-3-dev libgl1-mesa-dev xorg-dev
+          sudo apt install -y ninja-build liblzma-dev libgtk-3-dev libgl1-mesa-dev xorg-dev libmpv-dev mpv
           curl -JOL https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod a+x appimagetool-x86_64.AppImage
           mv appimagetool-x86_64.AppImage appimagetool
           cd yida
           flutter pub get
-          flutter_rust_bridge_codegen generate 
           flutter config --enable-linux-desktop
           flutter build linux --release
           mv build/linux/x64/release/bundle/{yida,AppRun}
@@ -332,22 +282,21 @@ jobs:
 
       - name: build (windows)
         if: steps.check_asset.outputs.skip_build != 'true' && matrix.config.target == 'windows'
+        env:
+          PUB_CACHE: 'D:\a\pub'
         run: |
           cd yida
           flutter pub get
-          flutter_rust_bridge_codegen generate 
+          dart run ffigen --config config.yaml
           flutter config --enable-windows-desktop
           flutter build windows --target=lib/main2.dart
-          cd build/windows/x64/runner/Release
-          Compress-Archive * ../../../../build/windows.zip
-          cd ../../../..
+          Compress-Archive -Path build/windows/x64/runner/Release -DestinationPath build/windows.zip
 
       - name: Build (macos)
         if: steps.check_asset.outputs.skip_build != 'true' && matrix.config.target == 'macos'
         run: |
           cd yida
           flutter pub get
-          flutter_rust_bridge_codegen generate 
           rustup target install x86_64-apple-darwin
           rustup target install aarch64-apple-darwin
           flutter config --enable-macos-desktop
